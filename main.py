@@ -68,18 +68,23 @@ def host_uplink_capture(host, esxiuser, esxipassword,uplink,srcip,dstip):
     c= None
     return result
 
-def host_vm_switchport_vdr_capture(host, esxiuser, esxipassword, evm, srcip,dstip):
+def host_vm_switchport_vdr_capture(host, esxiuser, esxipassword, srcip,dstip):
     c = None
     print("Connect to {ip}".format(ip=host))
     c = Connection(host=host,user=esxiuser,connect_kwargs={"password":esxipassword})
-    result = c.run("nsxdp-cli vswitch instance list | grep vdr",hide=True)
-    switchportid = result.stdout.split()[1]
+    #result = c.run("nsxdp-cli vswitch instance list | grep vdr",hide=True)
+    #switchportid = result.stdout.split()[1]
+    #try:
+    #    print("Switchport ID: {switchportid}".format(switchportid=switchportid))
+    #    result = c.run("pktcap-uw -K --switchport {switchportid} -c 10 --ip {srcip} --ip {dstip} --dir 2 -o - | tcpdump-uw -enr -".format(switchportid=switchportid,srcip=srcip, dstip=dstip),timeout=10, hide=True)
+    #    c.run("kill -9 $(lsof |grep pktcap-uw |awk '{print $1}'| sort -u)", hide=True)
+    #    print(result.stdout)
+    #    result = None
+    #except:
+    #    print("Timeout")
     try:
-        print("Switchport ID: {switchportid}".format(switchportid=switchportid))
-        result = c.run("pktcap-uw -K --switchport {switchportid} -c 10 --ip {srcip} --ip {dstip} --dir 2 -o - | tcpdump-uw -enr -".format(switchportid=switchportid,srcip=srcip, dstip=dstip),timeout=10, hide=True)
-        c.run("kill -9 $(lsof |grep pktcap-uw |awk '{print $1}'| sort -u)", hide=True)
+        result = c.run("nsxcli -c start capture interface vdrPort direction dual count 10 expression ip {dstip}".format(dstip=dstip),timeout=10)
         print(result.stdout)
-        result = None
     except:
         print("Timeout")
     c.close()
@@ -211,6 +216,42 @@ def edge_interface_capture(vm, nsxpassword, srcip, dstip):
     c.close()         
     return result
 
+def edge_t1_firewall_check(vm, nsxpassword, srcip, dstip):
+    c = None
+    print("Connect to {ip}".format(ip=vm.summary.guest.ipAddress))
+    c = Connection(host=vm.summary.guest.ipAddress,user="admin",connect_kwargs={"password":nsxpassword})
+    result = c.run("get logical-routers | json",hide=True)
+    routers = json.loads(result.stdout)
+    for router in routers:
+        if "T1" in router['name'] and "DR" in router['name']:
+            print("Checking Logical Router: {router}".format(router=router['name']))
+            result = c.run("get logical-router {vrid} interfaces | json".format(vrid=router['uuid']),hide=True)
+            data =json.loads(result.stdout)
+            for srdr in data:
+                if srdr == "SERVICE_ROUTER_TIER1":
+                    for interface in data[srdr]['ports']:
+                        if interface['type'] == 'lif':
+                            if "TNT" in interface['name'] and interface['ptype'] == "uplink":
+                                print("Checking Interface {type}: {name} ifuuid: {ifuuid}".format(type=interface['ptype'],name=interface['name'],ifuuid=interface['ifuuid']))
+                                sleep(1)
+                                result = c.run("get logical-router interface {ifuuid} stats | json".format(ifuuid=interface['ifuuid']), hide=True)
+                                stats = json.loads(result.stdout)
+                                print("RX Firewall Drops: {fwdrops}".format(fwdrops=stats['stats']['rx_drop_firewall']))
+                                rx_fw_drops_1 = int(stats['stats']['rx_drop_firewall'])
+                                sleep(20)
+                                result = c.run("get logical-router interface {ifuuid} stats | json".format(ifuuid=interface['ifuuid']), hide=True)
+                                stats = json.loads(result.stdout)
+                                print("RX Firewall Drops: {fwdrops}".format(fwdrops=stats['stats']['rx_drop_firewall']))
+                                rx_fw_drops_2 = int(stats['stats']['rx_drop_firewall'])
+                                if rx_fw_drops_2 > rx_fw_drops_1:
+                                    print("!!!rx_fw_drops INCREASING!!!")
+                                else:
+                                    print("rx_fw_drops not increasing")
+    c.close
+    c = None
+                                
+
+                    
 def main():
     parser = argparse.ArgumentParser(description="Command to verify NSX-T ingress packet flow")
     parser.add_argument('--srcip', type=str, help="Source IP address for ingress traffic", required=True)
@@ -282,21 +323,25 @@ def main():
         result = edge_interface_capture(vm,args.nsx_password,args.srcip,dstvm.summary.guest.ipAddress)
 
     print("--------")
+    print("Check T1 Firewall Drops")
+    for vm in evms:
+        print("Edge VM: {vm} Host: {host}".format(vm=vm.name,host=get_vmk1_ip(vm.runtime.host)))
+        result = edge_t1_firewall_check(vm,args.nsx_password,args.srcip,dstvm.summary.guest.ipAddress)
+
     print("DST VM: {dstvm} Host: {host}".format(dstvm=dstvm.name, host=get_vmk1_ip(vm.runtime.host)))
     try:
         result = host_vm_switchport_capture(get_vmk1_ip(dstvm.runtime.host),args.esx_user, args.esx_password,dstvm,args.srcip,dstvm.summary.guest.ipAddress)
         print(result.stdout)
     except:
         print("-------")
-    print("Check vdrPort")
-
-    ####ADD PRE AND POST DVFILTER
-    print("DST VM: {dstvm} Host: {host}".format(dstvm=dstvm.name, host=get_vmk1_ip(vm.runtime.host)))
-    try:
-        result = host_vm_switchport_vdr_capture(get_vmk1_ip(dstvm.runtime.host),args.esx_user, args.esx_password,dstvm,args.srcip,dstvm.summary.guest.ipAddress)
-        print(result.stdout)
-    except:
-        print("-------")
+    ###Does not produce expected results
+    #print("Check vdrPort")
+    #print("DST VM: {dstvm} Host: {host}".format(dstvm=dstvm.name, host=get_vmk1_ip(dstvm.runtime.host)))
+    #try:
+    #    result = host_vm_switchport_vdr_capture(get_vmk1_ip(dstvm.runtime.host),args.esx_user, args.esx_password,args.srcip,dstvm.summary.guest.ipAddress)
+    #    print(result.stdout)
+    #except:
+    #    print("-------")
     
     return 0
 
