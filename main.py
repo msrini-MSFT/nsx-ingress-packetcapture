@@ -107,6 +107,7 @@ def host_vm_switchport_capture(host, esxiuser, esxipassword, evm, srcip,dstip):
             result = None
         except:
             print("Timeout")
+    c.run("kill -9 $(lsof |grep pktcap-uw |awk '{print $1}'| sort -u)", hide=True)
     c.close()
     return 0
 
@@ -295,7 +296,7 @@ def main():
     print("Found EVM02: "+evm02.name)
     print("EVM02 IP: "+evm02.summary.guest.ipAddress)
     print("EVM02 Host IP: "+ get_vmk1_ip(evm02.runtime.host))
-    print("Starting caputre for host uplinks")
+    print("Starting capture for host uplinks")
     print("-------")
     for vm in evms:
         for uplink in ["vmnic0","vmnic3"]:
