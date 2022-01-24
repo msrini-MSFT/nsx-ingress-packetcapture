@@ -62,7 +62,7 @@ def host_uplink_capture(host, esxiuser, esxipassword,uplink,srcip,dstip):
     print("Connect to {ip}".format(ip=host))
     c = Connection(host=host,user=esxiuser,connect_kwargs={"password":esxipassword})
     #pcktcap-uw --uplink vmnicX --ip IP -c 10
-    result = c.run("pktcap-uw --uplink {uplink} --ip {srcip} --ip {dstip} -c 10 --dir 2 -o - | tcpdump-uw -enr-".format(uplink=uplink , srcip=srcip, dstip=dstip),timeout=10,hide=True)
+    result = c.run("pktcap-uw --uplink {uplink} --ip {srcip} --ip {dstip} -c 10 --dir 2 -o - | tcpdump-uw -enr - host {srcip} and host {dstip}".format(uplink=uplink , srcip=srcip, dstip=dstip),timeout=10,hide=True)
     c.run("kill -9 $(lsof |grep pktcap-uw |awk '{print $1}'| sort -u)", hide=True)
     c.close()
     c= None
@@ -102,7 +102,7 @@ def host_vm_switchport_capture(host, esxiuser, esxipassword, evm, srcip,dstip):
     for switchport in switchportid.splitlines():
         try:
             print("Switchport ID: {switchportid}".format(switchportid=switchport.strip()))
-            result = c.run("pktcap-uw -K --switchport {switchportid} -c 10 --ip {srcip} --ip {dstip} --dir 2 -o - | tcpdump-uw -enr -".format(switchportid=switchport.strip(),srcip=srcip, dstip=dstip),timeout=10, hide=True)
+            result = c.run("pktcap-uw -K --switchport {switchportid} -c 10 --ip {srcip} --ip {dstip} --dir 2 -o - | tcpdump-uw -enr - host {srcip} and host {dstip}".format(switchportid=switchport.strip(),srcip=srcip, dstip=dstip),timeout=10, hide=True)
             print(result.stdout)
             result = None
         except:
