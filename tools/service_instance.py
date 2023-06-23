@@ -5,7 +5,10 @@ __author__ = "VMware, Inc."
 
 import atexit
 from pyVim.connect import SmartConnect, Disconnect
-
+try:
+    from pyVim.connect import SmartConnectNoSSL
+except ImportError:
+    from pyvim.connect import SmartConnectNoSSL
 
 def connect(args):
     """
